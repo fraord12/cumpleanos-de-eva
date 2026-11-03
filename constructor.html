@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Preparar mi galería</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+:root{--bg:#121212;--card:#1E1E1E;--tx:#F2EEE8;--mut:#CFC8BE;--gold:#E0B25C;--line:#3A3A3A;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font-family:system-ui,sans-serif;line-height:1.5}
+.wrap{max-width:720px;margin:0 auto;padding:28px 20px 60px}
+h1{font-size:30px;margin:0 0 6px}
+.box{background:var(--card);border-radius:24px;padding:22px;margin-top:18px}
+.box h2{font-size:18px;margin:0 0 10px}
+p{color:var(--mut);margin:0 0 12px}
+label{display:block;margin:10px 0 4px;color:var(--mut);font-size:14px}
+input[type=text]{width:100%;font:inherit;background:var(--bg);color:var(--tx);border:1px solid var(--line);border-radius:999px;padding:10px 18px;min-height:44px}
+button{font:inherit;cursor:pointer;min-height:48px;border-radius:999px;padding:10px 26px;border:1px solid var(--gold);background:var(--gold);color:#121212;font-weight:600}
+button:disabled{opacity:.45;cursor:default}
+progress{width:100%;height:14px;margin-top:14px}
+#st{color:var(--tx);margin-top:10px}
+</style></head>
+<body><div class="wrap">
+<h1>Preparar mi galería</h1>
+<p>Este paso crea las vistas previas y el archivo de la galería. Tus fotos no se suben a ningún sitio: todo pasa en tu computadora.</p>
+
+<div class="box"><h2>1. Elige tu carpeta de fotos</h2>
+<p>Debe llamarse <b>fotos</b> y tener una subcarpeta por evento. Para la portada de un evento, guarda una foto llamada <b>portada</b> dentro de su subcarpeta.</p>
+<input type="file" id="dir" webkitdirectory hidden>
+<button id="pick">Elegir carpeta</button>
+<div id="sum" style="margin-top:12px"></div></div>
+
+<div class="box"><h2>2. Textos de tu página</h2>
+<label for="n">Nombre</label><input type="text" id="n" value="F.R Fotografías">
+<label for="h">Título principal</label><input type="text" id="h" value="Elige tus fotos favoritas">
+<label for="s">Subtítulo</label><input type="text" id="s" value="Toca las fotos que te gusten y descárgalas en su calidad original."></div>
+
+<div class="box"><h2>3. Crear los archivos</h2>
+<button id="go" disabled>Crear y descargar extras.zip</button>
+<progress id="pr" value="0" max="1" hidden></progress><div id="st" role="status" aria-live="polite"></div></div>
+</div>
+<script>
+const $=s=>document.querySelector(s);
+let by={},root='fotos',total=0;
+const titulo=c=>{const t=c.replace(/[-_]+/g,' ');return t.charAt(0).toUpperCase()+t.slice(1)};
+$('#pick').onclick=()=>$('#dir').click();
+$('#dir').onchange=e=>{
+ by={};total=0;let skipped=0;
+ for(const f of e.target.files){const p=f.webkitRelativePath.split('/');
+  if(!/\.(jpe?g|png|webp)$/i.test(f.name)||p.length!==3||p[1]==='_previas'){skipped++;continue}
+  root=p[0];(by[p[1]]=by[p[1]]||[]).push(f);total++}
+ const ev=Object.keys(by).sort();
+ $('#sum').textContent=total?('Encontré '+total+' imágenes en '+ev.length+' eventos: '+ev.map(titulo).join(', ')+'.'):'No encontré fotos. Elige la carpeta que contiene una subcarpeta por evento.';
+ $('#go').disabled=!total;$('#st').textContent='';
+};
+async function thumb(f,max,q){try{const b=await createImageBitmap(f),k=Math.min(1,max/Math.max(b.width,b.height)),c=document.createElement('canvas');
+ c.width=Math.round(b.width*k);c.height=Math.round(b.height*k);c.getContext('2d').drawImage(b,0,0,c.width,c.height);b.close&&b.close();
+ return await new Promise(r=>c.toBlob(r,'image/jpeg',q))}catch(e){return null}}
+$('#go').onclick=async()=>{
+ if(!window.JSZip){$('#st').textContent='No se pudo cargar la herramienta de compresión. Revisa tu conexión a internet y recarga la página.';return}
+ $('#go').disabled=true;const pr=$('#pr'),st=$('#st'),z=new JSZip(),data={name:$('#n').value.trim(),head:$('#h').value.trim(),sub:$('#s').value.trim(),events:[]};
+ pr.hidden=false;pr.max=total;pr.value=0;let n=0,fail=0;
+ for(const ev of Object.keys(by).sort()){
+  const list=by[ev].sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true})),item={title:titulo(ev),cover:null,photos:[]};
+  for(const f of list){st.textContent='Procesando '+(++n)+' de '+total+'… no cierres esta página';pr.value=n;
+   const base=f.name.replace(/\.[^.]+$/,''),isCover=base.toLowerCase()==='portada',path=root+'/'+ev+'/_previas/'+base+'.jpg',t=await thumb(f,isCover?1800:640,isCover?.85:.78);
+   if(t)z.file(path,t);else fail++;
+   if(isCover){item.cover=t?path:root+'/'+ev+'/'+f.name}else item.photos.push({file:root+'/'+ev+'/'+f.name,thumb:t?path:undefined})}
+  data.events.push(item)}
+ z.file('galeria.json',JSON.stringify(data,null,1));
+ st.textContent='Comprimiendo…';
+ const out=await z.generateAsync({type:'blob',compression:'STORE'}),a=document.createElement('a');a.href=URL.createObjectURL(out);a.download='extras.zip';document.body.append(a);a.click();a.remove();
+ st.textContent='Listo: se descargó extras.zip.'+(fail?' '+fail+' fotos no pudieron tener vista previa y usarán la original.':'')+' Ahora descomprímelo dentro de la carpeta de tu galería.';
+ $('#go').disabled=false};
+</script></body></html>
